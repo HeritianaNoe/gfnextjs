@@ -11,8 +11,8 @@ import {
 export type Difficulty = "mora" | "antonony" | "sarotra";
 
 const DEPTH: Record<Difficulty, number> = {
-  mora: 1,
-  antonony: 2,
+  mora: 2,
+  antonony: 3,
   sarotra: 4,
 };
 

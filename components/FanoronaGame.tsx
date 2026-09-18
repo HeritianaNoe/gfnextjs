@@ -262,14 +262,14 @@ export default function FanoronaGame() {
 
   const statusText = gameOver
     ? gameOver.winner === HUMAN
-      ? "Nandresy ianao! 🎉"
+      ? "Nandresy ianao!"
       : "Nandresy ny ordinatera."
     : current === HUMAN
     ? chain
       ? "Manohy misambotra, sa ajanony?"
       : turnOpts.forced
-      ? "Misy azo sambôrina — tsy maintsy misambotra."
-      : "Tour anao — misafidiana bilaza."
+      ? "Misy azo samborina — tsy maintsy misambotra."
+      : "Anjaranao — misafidiana amin'izay mandeha."
     : "Mihevitra ny ordinatera…";
 
   return (
@@ -319,7 +319,7 @@ export default function FanoronaGame() {
         </div>
 
         <div className="flex items-center gap-2">
-          <label className="text-bone/60 text-sm font-body">Haran-tsakafo:</label>
+          <label className="text-bone/60 text-sm font-body">Tanjaka:</label>
           <select
             value={difficulty}
             onChange={(e) => setDifficulty(e.target.value as Difficulty)}

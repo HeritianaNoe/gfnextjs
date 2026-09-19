@@ -22,11 +22,23 @@
 //   - move in the same direction as its immediately preceding step.
 // Continuing the chain is always optional. Capturing (in some direction,
 // by some piece) is mandatory whenever it is available at all.
+//
+// Vela (rules from user + classic):
+//   Fixed roles for the whole Vela phase:
+//     • mpihinambela (first player / capturer): must capture when available
+//       (exactly 1 stone only — first of the beam). No chain. If no capture
+//       available → may make a quiet move.
+//     • mpampihinana (second player / non-capturer): never captures. May move
+//       on ANY legal adjacent empty path (including paths that would normally
+//       capture) but the move is always quiet (no stones removed). The move
+//       MUST leave the mpihinambela able to capture on the following turn.
+//   When the mpampihinana has exactly 5 pieces → switch back to Riatra.
 // ---------------------------------------------------------------------------
 
 export type Player = 1 | 2; // 1 = Mainty (Black), 2 = Fotsy (White)
 export type Cell = 0 | Player;
 export type Board = Cell[];
+export type GameType = "riatra" | "vela";
 
 export const ROWS = 5;
 export const COLS = 9;
@@ -66,7 +78,7 @@ export function directions(r: number, c: number): Dir[] {
   if ((r + c) % 2 === 0) {
     dirs.push([1, 1], [-1, -1], [1, -1], [-1, 1]);
   }
-  return dirs.filter(([dr, dc]) => inBounds(r + dr, c + dc));
+  return dirs;
 }
 
 /** True raha misy lakana mivantana eo amin'ny teboka roa (mitovy amin'ny Board.hasEdge JavaFX). */
@@ -151,6 +163,15 @@ function beam(
 export interface StepOptions {
   excludeDir?: Dir;
   visited?: Set<number>;
+  /** Game mode — defaults to riatra. */
+  gameType?: GameType;
+  /**
+   * Vela only:
+   * true  = mpihinambela (capturer) — forced capture when available (1 stone); else quiet OK.
+   * false = mpampihinana (non-capturer) — any adjacent move treated as quiet;
+   *         must leave opponent (capturer) a capture opportunity.
+   */
+  isVelaCapturer?: boolean;
 }
 
 /** All legal single steps for the piece at `from`, given optional chain constraints.
@@ -161,13 +182,22 @@ export function singleSteps(
   mover: Player,
   opts: StepOptions = {}
 ): Step[] {
+  const gameType = opts.gameType ?? "riatra";
+  const isVelaCapturer = opts.isVelaCapturer ?? true;
   const [r, c] = rc(from);
   const opp = opponent(mover);
   const steps: Step[] = [];
+
   for (const dir of directions(r, c)) {
-    if (opts.excludeDir && dir[0] === opts.excludeDir[0] && dir[1] === opts.excludeDir[1]) {
-      continue;
+    // Chain constraints (Riatra): skip same and opposite direction as last step
+    if (opts.excludeDir) {
+      const same =
+        dir[0] === opts.excludeDir[0] && dir[1] === opts.excludeDir[1];
+      const opposite =
+        dir[0] === -opts.excludeDir[0] && dir[1] === -opts.excludeDir[1];
+      if (same || opposite) continue;
     }
+
     const tr = r + dir[0];
     const tc = c + dir[1];
     if (!inBounds(tr, tc)) continue;
@@ -176,17 +206,49 @@ export function singleSteps(
     if (opts.visited && opts.visited.has(to)) continue;
 
     // Approach: beam manomboka amin'ny landing, mizotra amin'ny dir
-    const approach = beam(board, tr, tc, dir[0], dir[1], opp);
+    const approachFull = beam(board, tr, tc, dir[0], dir[1], opp);
     // Withdrawal: beam manomboka amin'ny from, mizotra mifanohitra
-    const withdrawal = beam(board, r, c, -dir[0], -dir[1], opp);
+    const withdrawalFull = beam(board, r, c, -dir[0], -dir[1], opp);
 
+    // Vela: only first stone of the beam
+    const approach =
+      gameType === "vela" && approachFull.length > 0 ? [approachFull[0]] : approachFull;
+    const withdrawal =
+      gameType === "vela" && withdrawalFull.length > 0 ? [withdrawalFull[0]] : withdrawalFull;
+
+    if (gameType === "vela") {
+      if (isVelaCapturer) {
+        // Dart: evaluate captures (1 stone) + quiet moves; legal filter later.
+        if (approach.length > 0) {
+          steps.push({ from, to, dir, captured: approach, captureType: "approach" });
+        }
+        if (withdrawal.length > 0) {
+          steps.push({ from, to, dir, captured: withdrawal, captureType: "withdrawal" });
+        }
+        if (approach.length === 0 && withdrawal.length === 0) {
+          steps.push({ from, to, dir, captured: [], captureType: "move" });
+        }
+      } else {
+        // mpampihinana: may move on ANY path (even one that would capture),
+        // but never removes stones. Move must leave mpihinambela a capture.
+        const simulated = board.slice();
+        simulated[from] = 0;
+        simulated[to] = mover;
+        // Opponent checked as capturer (isVelaCapturer=true)
+        if (allCaptureSteps(simulated, opp, "vela", true).length > 0) {
+          steps.push({ from, to, dir, captured: [], captureType: "move" });
+        }
+      }
+      continue;
+    }
+
+    // Riatra (classic)
     if (approach.length > 0) {
       steps.push({ from, to, dir, captured: approach, captureType: "approach" });
     }
     if (withdrawal.length > 0) {
       steps.push({ from, to, dir, captured: withdrawal, captureType: "withdrawal" });
     }
-    // Quiet move — toy ny Java: atao foana; ny turnStartOptions no manilika raha misy capture
     if (approach.length === 0 && withdrawal.length === 0) {
       steps.push({ from, to, dir, captured: [], captureType: "move" });
     }
@@ -194,24 +256,64 @@ export function singleSteps(
   return steps;
 }
 
-export function allStepsForPlayer(board: Board, player: Player): Step[] {
+/** Capture-only steps for a player (used by Vela non-capturer check). */
+function allCaptureSteps(
+  board: Board,
+  player: Player,
+  gameType: GameType,
+  isVelaCapturer: boolean
+): Step[] {
   const out: Step[] = [];
   for (let i = 0; i < board.length; i++) {
-    if (board[i] === player) out.push(...singleSteps(board, i, player));
+    if (board[i] !== player) continue;
+    const steps = singleSteps(board, i, player, { gameType, isVelaCapturer });
+    for (const s of steps) {
+      if (s.captureType !== "move") out.push(s);
+    }
+  }
+  return out;
+}
+
+export function allStepsForPlayer(
+  board: Board,
+  player: Player,
+  gameType: GameType = "riatra",
+  isVelaCapturer = true
+): Step[] {
+  const out: Step[] = [];
+  for (let i = 0; i < board.length; i++) {
+    if (board[i] === player) {
+      out.push(...singleSteps(board, i, player, { gameType, isVelaCapturer }));
+    }
   }
   return out;
 }
 
 /**
- * The options available to a player at the *start* of their turn.
- * If any capturing step exists anywhere on the board, capturing is
- * mandatory and only capturing steps are returned.
+ * Options at the start of a turn.
+ * Riatra: if any capture exists, only capturing steps are returned (forced).
+ * Vela mpihinambela (capturer): captures forced if any exist; else quiet OK.
+ * Vela mpampihinana (non-capturer): any adjacent move as quiet that leaves opp a capture.
  */
 export function turnStartOptions(
   board: Board,
-  player: Player
+  player: Player,
+  gameType: GameType = "riatra",
+  isVelaCapturer = true
 ): { forced: boolean; steps: Step[] } {
-  const all = allStepsForPlayer(board, player);
+  const all = allStepsForPlayer(board, player, gameType, isVelaCapturer);
+
+  if (gameType === "vela") {
+    if (isVelaCapturer) {
+      // Dart generateLegalMoves: captures first if any, else quiet
+      const captures = all.filter((s) => s.captureType !== "move");
+      if (captures.length > 0) return { forced: true, steps: captures };
+      return { forced: false, steps: all };
+    }
+    // Non-capturer: only quiet moves that leave opp a capture (already in all)
+    return { forced: false, steps: all };
+  }
+
   const captures = all.filter((s) => s.captureType !== "move");
   if (captures.length > 0) return { forced: true, steps: captures };
   return { forced: false, steps: all };
@@ -226,28 +328,34 @@ export function applyStep(board: Board, step: Step, player: Player): Board {
 }
 
 /**
- * Enumerate every complete "turn" available to `player`: every point at
- * which they may legally stop, including every reachable length of a
- * capture chain. Used by the AI to search the game tree; the human UI
- * walks the same rules interactively instead of using this list directly.
+ * Enumerate every complete "turn" available to `player`.
+ * Vela: no chains — each legal step is a full turn.
+ * Riatra: same as before (optional chain after captures).
  */
-export function generateTurns(board: Board, player: Player): Turn[] {
-  const { forced, steps } = turnStartOptions(board, player);
+export function generateTurns(
+  board: Board,
+  player: Player,
+  gameType: GameType = "riatra",
+  isVelaCapturer = true
+): Turn[] {
+  const { forced, steps } = turnStartOptions(board, player, gameType, isVelaCapturer);
   const turns: Turn[] = [];
 
-  if (!forced) {
+  if (gameType === "vela" || !forced) {
     for (const s of steps) {
       turns.push({ player, steps: [s], board: applyStep(board, s, player) });
     }
     return turns;
   }
 
+  // Riatra capture chains
   const dfs = (curBoard: Board, stepsSoFar: Step[], visited: Set<number>) => {
     const last = stepsSoFar[stepsSoFar.length - 1];
     turns.push({ player, steps: stepsSoFar, board: curBoard });
     const cont = singleSteps(curBoard, last.to, player, {
       excludeDir: last.dir,
       visited,
+      gameType: "riatra",
     }).filter((s) => s.captureType !== "move");
     for (const s of cont) {
       const nb = applyStep(curBoard, s, player);
@@ -272,13 +380,23 @@ export function countPieces(board: Board, player: Player): number {
   return n;
 }
 
+/**
+ * True when the mpampihinana (non-capturer) has exactly 5 pieces — end of Vela.
+ * nonCapturer = the player who did NOT go first.
+ */
+export function shouldExitVela(board: Board, nonCapturer: Player): boolean {
+  return countPieces(board, nonCapturer) === 5;
+}
+
 export function isGameOver(
   board: Board,
-  toMove: Player
+  toMove: Player,
+  gameType: GameType = "riatra",
+  isVelaCapturer = true
 ): { over: boolean; winner: Player | null } {
   if (countPieces(board, toMove) === 0) return { over: true, winner: opponent(toMove) };
   if (countPieces(board, opponent(toMove)) === 0) return { over: true, winner: toMove };
-  const { steps } = turnStartOptions(board, toMove);
+  const { steps } = turnStartOptions(board, toMove, gameType, isVelaCapturer);
   if (steps.length === 0) return { over: true, winner: opponent(toMove) };
   return { over: false, winner: null };
 }

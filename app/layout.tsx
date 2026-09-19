@@ -19,7 +19,7 @@ const karla = Karla({
 
 export const metadata: Metadata = {
   title: "Fanorona",
-  description: "Fanorona — lalao ara-tantana malagasy, hilalao amin'ny ordinatera",
+  description: "Fanorona — Lalao nentim-paharazana Malagasy",
 };
 
 export default function RootLayout({

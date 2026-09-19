@@ -24,6 +24,10 @@ interface BoardProps {
   destinations: Set<number>;
   captureHints: Set<number>;
   forcedPieces: Set<number>;
+  /** AI animation: origin of the moving piece */
+  movingFrom?: number | null;
+  /** AI animation: destination of the moving piece */
+  movingTo?: number | null;
   onPointClick: (i: number) => void;
   disabled: boolean;
 }
@@ -34,6 +38,8 @@ export default function FanoronaBoard({
   selected,
   destinations,
   captureHints,
+  movingFrom = null,
+  movingTo = null,
   onPointClick,
   disabled,
 }: BoardProps) {
@@ -122,6 +128,9 @@ export default function FanoronaBoard({
         <filter id="glowGreen" x="-50%" y="-50%" width="200%" height="200%">
           <feDropShadow dx="0" dy="0" stdDeviation="3" floodColor="#40c050" floodOpacity="0.9" />
         </filter>
+        <filter id="glowAiMove" x="-50%" y="-50%" width="200%" height="200%">
+          <feDropShadow dx="0" dy="0" stdDeviation="4" floodColor="#60a5fa" floodOpacity="0.95" />
+        </filter>
         <filter id="frameShadow" x="-5%" y="-5%" width="110%" height="115%">
           <feDropShadow dx="3" dy="5" stdDeviation="6" floodColor="#000" floodOpacity="0.35" />
         </filter>
@@ -209,6 +218,7 @@ export default function FanoronaBoard({
         const isDest = destinations.has(i);
         const isSelectable = selectable.has(i);
         const isCaptureHint = captureHints.has(i);
+        const isAiMoving = movingFrom === i || movingTo === i;
         const isHighlighted =
           isDest || isCaptureHint || (isSelectable && selected === null);
         const clickable = isSelectable || isDest || isCaptureHint;
@@ -216,7 +226,11 @@ export default function FanoronaBoard({
         let stroke = cell === 1 ? "#1a1a1a" : cell === 2 ? "#8a6a45" : "#6b4a35";
         let strokeWidth = cell === 0 ? 1 : 1.4;
         let filter: string | undefined;
-        if (isSelected) {
+        if (isAiMoving) {
+          stroke = "#60a5fa";
+          strokeWidth = 2.8;
+          filter = "url(#glowAiMove)";
+        } else if (isSelected) {
           stroke = "#f0b040";
           strokeWidth = 2.5;
           filter = "url(#glowGold)";
@@ -254,6 +268,17 @@ export default function FanoronaBoard({
                 stroke="#40c050"
                 strokeWidth={1.8}
                 filter="url(#glowGreen)"
+              />
+            ) : movingTo === i ? (
+              <circle
+                cx={x}
+                cy={y}
+                r={8}
+                fill="#60a5fa"
+                fillOpacity={0.55}
+                stroke="#60a5fa"
+                strokeWidth={2}
+                filter="url(#glowAiMove)"
               />
             ) : (
               <circle cx={x} cy={y} r={4} fill="#a8845a" fillOpacity={0.45} stroke="#6b4a35" strokeWidth={1} />

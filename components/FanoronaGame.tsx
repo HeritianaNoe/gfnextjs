@@ -6,12 +6,14 @@ import {
   Board,
   Player,
   Step,
+  GameType,
   applyStep,
   countPieces,
   initialBoard,
   isGameOver,
   singleSteps,
   turnStartOptions,
+  shouldExitVela,
 } from "@/lib/fanorona";
 import { Difficulty, chooseAiTurn } from "@/lib/ai";
 
@@ -31,6 +33,11 @@ const DIFF_LABEL: Record<Difficulty, string> = {
   sarotra: "Sarotra",
 };
 
+const GAME_TYPE_LABEL: Record<GameType, string> = {
+  riatra: "Riatra",
+  vela: "Vela",
+};
+
 export default function FanoronaGame() {
   const [board, setBoard] = useState<Board>(() => initialBoard());
   const [current, setCurrent] = useState<Player>(HUMAN);
@@ -44,17 +51,39 @@ export default function FanoronaGame() {
   const [moveCount, setMoveCount] = useState(0);
   /** Izay mandeha aloha: HUMAN na AI */
   const [goesFirst, setGoesFirst] = useState<Player>(HUMAN);
+  /** Highlight origin/destination while AI piece is animating */
+  const [movingFrom, setMovingFrom] = useState<number | null>(null);
+  const [movingTo, setMovingTo] = useState<number | null>(null);
+  /** Karazana lalao: Riatra na Vela */
+  const [gameType, setGameType] = useState<GameType>("riatra");
+  /**
+   * Vela roles are FIXED (not alternating):
+   *   - Player who goes first = mpihinambela (capturer): must capture when available (1 stone).
+   *   - The other = mpampihinana (non-capturer): never captures; any move as quiet,
+   *     but must leave the capturer able to capture afterwards.
+   * Derived from goesFirst + who is moving — no per-turn flip.
+   */
+  function velaCapturerFor(who: Player, type: GameType = gameType, first: Player = goesFirst): boolean {
+    if (type !== "vela") return true;
+    return who === first;
+  }
+
+  /** mpampihinana = the player who did NOT go first */
+  function velaNonCapturer(first: Player = goesFirst): Player {
+    return first === HUMAN ? AI : HUMAN;
+  }
 
   const turnOpts = useMemo(() => {
     if (current !== HUMAN || chain) return { forced: false, steps: [] as Step[] };
-    return turnStartOptions(board, HUMAN);
-  }, [board, current, chain]);
+    return turnStartOptions(board, HUMAN, gameType, velaCapturerFor(HUMAN));
+  }, [board, current, chain, gameType, goesFirst]);
 
   const addLog = useCallback((text: string) => {
     setLog((l) => [text, ...l].slice(0, 6));
   }, []);
 
-  function startFresh(first: Player = goesFirst) {
+
+  function startFresh(first: Player = goesFirst, type: GameType = gameType) {
     const b = initialBoard();
     setBoard(b);
     setSelected(null);
@@ -63,11 +92,14 @@ export default function FanoronaGame() {
     setGameOver(null);
     setLog([]);
     setMoveCount(0);
+    setMovingFrom(null);
+    setMovingTo(null);
     setGoesFirst(first);
+    setGameType(type);
     if (first === AI) {
       setCurrent(AI);
       setAiThinking(true);
-      setTimeout(() => runAi(b), 400);
+      setTimeout(() => runAi(b, type, first), 500);
     } else {
       setCurrent(HUMAN);
       setAiThinking(false);
@@ -75,28 +107,52 @@ export default function FanoronaGame() {
   }
 
   function resetGame() {
-    startFresh(goesFirst);
+    startFresh(goesFirst, gameType);
   }
 
   function chooseFirst(who: Player) {
     if (who === goesFirst && moveCount === 0 && !aiThinking) return;
-    startFresh(who);
+    startFresh(who, gameType);
   }
 
-  function runAi(startBoard: Board) {
-    const turn = chooseAiTurn(startBoard, AI, difficulty);
+  function chooseGameType(type: GameType) {
+    if (type === gameType && moveCount === 0 && !aiThinking) return;
+    startFresh(goesFirst, type);
+  }
+
+  function runAi(startBoard: Board, type: GameType = gameType, first: Player = goesFirst) {
+    const isOpening = moveCount === 0;
+    const capturer = type === "vela" ? first === AI : true;
+    const turn = chooseAiTurn(startBoard, AI, difficulty, isOpening, type, capturer);
     if (!turn) {
       setAiThinking(false);
       setGameOver({ winner: HUMAN });
       return;
     }
-    animateAiSteps(turn.steps, startBoard, 0);
+    setTimeout(() => animateAiSteps(turn.steps, startBoard, 0, type, first), 300);
   }
 
-  function animateAiSteps(steps: Step[], curBoard: Board, i: number) {
+  function animateAiSteps(
+    steps: Step[],
+    curBoard: Board,
+    i: number,
+    type: GameType,
+    first: Player
+  ) {
     if (i >= steps.length) {
       setAiThinking(false);
-      const { over, winner } = isGameOver(curBoard, HUMAN);
+      setMovingFrom(null);
+      setMovingTo(null);
+      const nextType =
+        type === "vela" && shouldExitVela(curBoard, velaNonCapturer(first))
+          ? "riatra"
+          : type;
+      if (nextType !== type) {
+        setGameType(nextType);
+        //addLog("Vela vita — miverina amin'ny Riatra.");
+      }
+      const humanCap = nextType === "vela" ? first === HUMAN : true;
+      const { over, winner } = isGameOver(curBoard, HUMAN, nextType, humanCap);
       if (over) {
         setGameOver({ winner: winner! });
         return;
@@ -105,14 +161,15 @@ export default function FanoronaGame() {
       return;
     }
     const step = steps[i];
+    setMovingFrom(step.from);
+    setMovingTo(step.to);
     const nb = applyStep(curBoard, step, AI);
-    setBoard(nb);
-    if (i === 0) {
-      addLog(
-        `Ordinatera: namindra${step.captured.length ? `, nisambotra ${totalCaptured(steps)}` : ""}`
-      );
-    }
-    setTimeout(() => animateAiSteps(steps, nb, i + 1), 420);
+    setTimeout(() => {
+      setBoard(nb);
+      setMovingFrom(null);
+      setMovingTo(step.to);
+      setTimeout(() => animateAiSteps(steps, nb, i + 1, type, first), 560);
+    }, 420);
   }
 
   function totalCaptured(steps: Step[]) {
@@ -124,16 +181,24 @@ export default function FanoronaGame() {
     setSelected(null);
     setPendingChoice(null);
     setMoveCount((m) => m + 1);
-    const capped = totalCaptured(stepsThisTurn);
-    addLog(`Ianao: namindra${capped ? `, nisambotra ${capped}` : ""}`);
-    const { over, winner } = isGameOver(finalBoard, AI);
+
+    const nextType =
+      gameType === "vela" && shouldExitVela(finalBoard, velaNonCapturer())
+        ? "riatra"
+        : gameType;
+    if (nextType !== gameType) {
+      setGameType(nextType);
+      //addLog("Vela vita — miverina amin'ny Riatra.");
+    }
+    const aiCap = nextType === "vela" ? goesFirst === AI : true;
+    const { over, winner } = isGameOver(finalBoard, AI, nextType, aiCap);
     if (over) {
       setGameOver({ winner: winner! });
       return;
     }
     setCurrent(AI);
     setAiThinking(true);
-    setTimeout(() => runAi(finalBoard), 380);
+    setTimeout(() => runAi(finalBoard, nextType, goesFirst), 450);
   }
 
   function commitHumanStep(step: Step) {
@@ -141,7 +206,8 @@ export default function FanoronaGame() {
     setBoard(nb);
     setPendingChoice(null);
 
-    if (step.captureType === "move") {
+    // Vela: no chain — always end turn after one step
+    if (gameType === "vela" || step.captureType === "move") {
       finishHumanTurn(nb, [step]);
       return;
     }
@@ -154,6 +220,7 @@ export default function FanoronaGame() {
     const cont = singleSteps(nb, step.to, HUMAN, {
       excludeDir: step.dir,
       visited,
+      gameType: "riatra",
     }).filter((s) => s.captureType !== "move");
 
     if (cont.length === 0) {
@@ -179,7 +246,6 @@ export default function FanoronaGame() {
         commitHumanStep(byCap[0]);
         return;
       }
-      // na ny destination raha tokana
       const byDest = pendingChoice.filter((s) => s.to === i);
       if (byDest.length === 1) {
         commitHumanStep(byDest[0]);
@@ -192,6 +258,7 @@ export default function FanoronaGame() {
       const opts = singleSteps(board, chain.pieceAt, HUMAN, {
         excludeDir: chain.lastDir,
         visited: chain.visited,
+        gameType: "riatra",
       }).filter((s) => s.captureType !== "move");
       const matches = opts.filter((s) => s.to === i);
       if (matches.length === 1) commitHumanStep(matches[0]);
@@ -238,6 +305,7 @@ export default function FanoronaGame() {
       const opts = singleSteps(board, chain.pieceAt, HUMAN, {
         excludeDir: chain.lastDir,
         visited: chain.visited,
+        gameType: "riatra",
       }).filter((s) => s.captureType !== "move");
       return new Set(opts.map((s) => s.to));
     }
@@ -267,6 +335,12 @@ export default function FanoronaGame() {
     : current === HUMAN
     ? chain
       ? "Manohy misambotra, sa ajanony?"
+      : gameType === "vela" && velaCapturerFor(HUMAN) && turnOpts.forced
+      ? "Vela (mihinana) — tsy maintsy mihinana vato iray."
+      : gameType === "vela" && velaCapturerFor(HUMAN)
+      ? "Vela (error) — tsy misy azo hohanina."
+      : gameType === "vela" && !velaCapturerFor(HUMAN)
+      ? "Vela (manome) — mihetsika fotsiny."
       : turnOpts.forced
       ? "Misy azo samborina — tsy maintsy misambotra."
       : "Anjaranao — misafidiana amin'izay mandeha."
@@ -296,7 +370,6 @@ export default function FanoronaGame() {
               <span className="text-[10px] uppercase tracking-wide text-raffia-400 ml-0.5">aloha</span>
             )}
           </button>
-          <span className="font-display italic text-raffia-400/70 text-lg">vs</span>
           <button
             type="button"
             onClick={() => chooseFirst(AI)}
@@ -309,8 +382,8 @@ export default function FanoronaGame() {
             }`}
             title="Ordinatera no mandeha aloha"
           >
-            <span className="inline-block w-3.5 h-3.5 rounded-full bg-bone border border-wood-600" />
-            <span className="text-bone/90">Ordinatera</span>
+            <span className="inline-block w-3.5 h-3.5 rounded-full bg-[#E8DFD0] border border-wood-600" />
+            <span className="text-bone/90">AI</span>
             <span className="text-bone/50">{aiCount}</span>
             {goesFirst === AI && (
               <span className="text-[10px] uppercase tracking-wide text-raffia-400 ml-0.5">aloha</span>
@@ -318,7 +391,20 @@ export default function FanoronaGame() {
           </button>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          <label className="text-bone/60 text-sm font-body">Lalao:</label>
+          <select
+            value={gameType}
+            onChange={(e) => chooseGameType(e.target.value as GameType)}
+            className="bg-bark-800 text-bone border border-wood-600 rounded-md px-2 py-1 text-sm font-body focus:outline-none"
+            title="Safidio ny karazana lalao"
+          >
+            {(Object.keys(GAME_TYPE_LABEL) as GameType[]).map((t) => (
+              <option key={t} value={t}>
+                {GAME_TYPE_LABEL[t]}
+              </option>
+            ))}
+          </select>
           <label className="text-bone/60 text-sm font-body">Tanjaka:</label>
           <select
             value={difficulty}
@@ -335,7 +421,7 @@ export default function FanoronaGame() {
             onClick={resetGame}
             className="bg-laterite-600 hover:bg-laterite-500 transition-colors text-bone text-sm font-body px-3 py-1.5 rounded-md"
           >
-            Manomboka indray
+            Manomboka
           </button>
         </div>
       </div>
@@ -348,6 +434,8 @@ export default function FanoronaGame() {
           destinations={destinations}
           captureHints={captureHints}
           forcedPieces={forcedPieces}
+          movingFrom={movingFrom}
+          movingTo={movingTo}
           onPointClick={onPointClick}
           disabled={!!gameOver || current !== HUMAN}
         />
@@ -382,6 +470,3 @@ export default function FanoronaGame() {
     </div>
   );
 }
-
-
-

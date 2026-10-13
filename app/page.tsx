@@ -17,16 +17,6 @@ export default function Home() {
           className="w-full h-px mb-4"
           style={{ backgroundColor: "rgba(232, 220, 200, 0.45)" }}
         />
-        <p className="font-body text-bone/70 text-sm md:text-base leading-relaxed text-center tracking-wide">
-          Ny Fanorona dia lalao nentim-paharazana malagasy izay hita teto ampovoan-tany.
-          Riatra na Ady no fomba filaza ny lalao voalohany amin&apos;ny Fanorona ary
-          fifanarahana eo amin&apos;ny mpifanandrina ny fandehanana voalohany amin&apos;ny
-          lalao Riatra. Vela kosa no dingana manaraka, izay midika ho sazy eo amin&apos;ny
-          lalao fanorona, araka izany dia tsimaitsy efaina izany sazy izany raha resy eo
-          amin&apos;ny lalao Riatra. Ny lalao Vela dia maneho ny maha-olona sy ny
-          hatsaram-panahin&apos;ny Malagasy: ny tanjona dia tsy ny hamono fotsiny, fa ny
-          hamelona indray izay resy. Mankasitraka.
-        </p>
       </section>
 
       <footer className="mt-auto pt-12 pb-6 w-full max-w-3xl flex items-center justify-between gap-4">

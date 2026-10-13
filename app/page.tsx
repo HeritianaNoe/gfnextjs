@@ -12,14 +12,14 @@ export default function Home() {
         </p>
       </div>
       <FanoronaGame />
-      <section className="w-full max-w-3xl mt-6 mb-4">
+      <section className="w-full max-w-3xl mt-6 mb-1">
         <div
           className="w-full h-px mb-4"
           style={{ backgroundColor: "rgba(232, 220, 200, 0.45)" }}
         />
       </section>
 
-      <footer className="mt-auto pt-12 pb-6 w-full max-w-3xl flex items-center justify-between gap-4">
+      <footer className="mt-auto pb-6 w-full max-w-3xl flex items-center justify-between gap-4">
         <a
           href="https://lakabe.vercel.app/"
           target="_blank"
